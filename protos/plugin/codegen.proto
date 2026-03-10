@@ -111,11 +111,66 @@ message Query {
   repeated string comments = 6 [json_name = "comments"];
   string filename = 7 [json_name = "filename"];
   Identifier insert_into_table = 8 [json_name = "insert_into_table"];
+  DynamicQuery dynamic = 9 [json_name = "dynamic"];
 }
 
 message Parameter {
   int32 number = 1 [json_name = "number"];
   Column column = 2 [json_name = "column"];
+}
+
+message Condition {
+  oneof expr {
+    Leaf leaf = 1;
+    Not not = 2;
+    And and = 3;
+    Or  or  = 4;
+  }
+}
+
+message Leaf {
+  oneof value {
+    int32 control_id = 1 [json_name = "control_id"];
+    int32 param_number = 2 [json_name = "param_number"];
+  }
+}
+
+message Not {
+  Condition expr = 1;
+}
+
+message And {
+  repeated Condition exprs = 1;
+}
+
+message Or {
+  repeated Condition exprs = 1;
+}
+
+message DynamicQuery {
+  repeated Control controls = 1 [json_name = "controls"];
+  repeated Part parts = 3 [json_name = "parts"];
+}
+
+message Control {
+  int32 id = 1 [json_name = "id"];
+  string name = 2 [json_name = "name"];
+}
+
+message Part {
+  oneof value {
+    string text = 1 [json_name = "text"];
+    IfBranch if_branch = 2 [json_name = "if_branch"];
+  }
+}
+
+message IfBranch {
+  repeated IfBranchArm arms = 1 [json_name = "arms"];
+}
+
+message IfBranchArm {
+  Condition condition = 1 [json_name = "condition"];
+  repeated Part parts = 2 [json_name = "parts"];
 }
 
 message GenerateRequest {
