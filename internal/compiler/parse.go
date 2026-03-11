@@ -65,10 +65,14 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		return nil, err
 	}
 
-	md.Params, md.Flags, md.RuleSkiplist, err = metadata.ParseCommentFlags(cleanedComments)
+	directives, err := metadata.ParseCommentFlags(cleanedComments)
 	if err != nil {
 		return nil, err
 	}
+	md.Params = directives.Params
+	md.Flags = directives.Flags
+	md.DynamicCheck = directives.DynamicCheck
+	md.RuleSkiplist = directives.RuleSkiplist
 
 	var anlys *analysis
 	if c.databaseOnlyMode && c.expander != nil {

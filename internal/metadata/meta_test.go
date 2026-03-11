@@ -79,11 +79,12 @@ func TestParseQueryParams(t *testing.T) {
 			" @param @invalid UUID ",
 		},
 	} {
-		params, _, _, err := ParseCommentFlags(comments)
+		directives, err := ParseCommentFlags(comments)
 		if err != nil {
 			t.Errorf("expected comments to parse, got err: %s", err)
 		}
 
+		params := directives.Params
 		pt, ok := params["foo_id"]
 		if !ok {
 			t.Errorf("expected param not found")
@@ -125,11 +126,12 @@ func TestParseQueryFlags(t *testing.T) {
 			" @param @flag-bar UUID",
 		},
 	} {
-		_, flags, _, err := ParseCommentFlags(comments)
+		directives, err := ParseCommentFlags(comments)
 		if err != nil {
 			t.Errorf("expected comments to parse, got err: %s", err)
 		}
 
+		flags := directives.Flags
 		if !flags["@flag-foo"] {
 			t.Errorf("expected flag not found")
 		}
@@ -158,11 +160,13 @@ func TestParseQueryRuleSkiplist(t *testing.T) {
 			" @sqlc-vet-disable delete-without-where ",
 		},
 	} {
-		_, flags, ruleSkiplist, err := ParseCommentFlags(comments)
+		directives, err := ParseCommentFlags(comments)
 		if err != nil {
 			t.Errorf("expected comments to parse, got err: %s", err)
 		}
 
+		flags := directives.Flags
+		ruleSkiplist := directives.RuleSkiplist
 		if !flags["@sqlc-vet-disable"] {
 			t.Errorf("expected @sqlc-vet-disable flag not found")
 		}
@@ -177,6 +181,67 @@ func TestParseQueryRuleSkiplist(t *testing.T) {
 
 		if _, ok := ruleSkiplist["update-without-where"]; ok {
 			t.Errorf("unexpected rule found in skiplist")
+		}
+	}
+}
+
+func TestParseQueryDynamicCheck(t *testing.T) {
+	for _, tc := range []struct {
+		comments []string
+		mode     DynamicCheckMode
+	}{
+		{
+			comments: []string{
+				" name: CreateFoo :one",
+				" @sqlc-dynamic-check heuristic",
+			},
+			mode: DynamicCheckModeHeuristic,
+		},
+		{
+			comments: []string{
+				" name: CreateFoo :one",
+				" @sqlc-dynamic-check exhaustive",
+			},
+			mode: DynamicCheckModeExhaustive,
+		},
+	} {
+		directives, err := ParseCommentFlags(tc.comments)
+		if err != nil {
+			t.Errorf("expected comments to parse, got err: %s", err)
+		}
+		flags := directives.Flags
+		mode := directives.DynamicCheck
+		if !flags["@sqlc-dynamic-check"] {
+			t.Errorf("expected @sqlc-dynamic-check flag not found")
+		}
+		if mode != tc.mode {
+			t.Errorf("unexpected dynamic check mode: got %q want %q", mode, tc.mode)
+		}
+	}
+}
+
+func TestParseQueryDynamicCheckInvalid(t *testing.T) {
+	for _, comments := range [][]string{
+		{
+			" name: CreateFoo :one",
+			" @sqlc-dynamic-check",
+		},
+		{
+			" name: CreateFoo :one",
+			" @sqlc-dynamic-check invalid",
+		},
+		{
+			" name: CreateFoo :one",
+			" @sqlc-dynamic-check heuristic extra",
+		},
+		{
+			" name: CreateFoo :one",
+			" @sqlc-dynamic-check heuristic",
+			" @sqlc-dynamic-check exhaustive",
+		},
+	} {
+		if _, err := ParseCommentFlags(comments); err == nil {
+			t.Errorf("expected comments to fail parsing: %v", comments)
 		}
 	}
 }

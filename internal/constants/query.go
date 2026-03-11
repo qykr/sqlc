@@ -2,8 +2,9 @@ package constants
 
 // Flags
 const (
-	QueryFlagParam          = "@param"
-	QueryFlagSqlcVetDisable = "@sqlc-vet-disable"
+	QueryFlagParam            = "@param"
+	QueryFlagSqlcDynamicCheck = "@sqlc-dynamic-check"
+	QueryFlagSqlcVetDisable   = "@sqlc-vet-disable"
 )
 
 // Rules
