@@ -76,6 +76,7 @@ func TestMergeResolvedParamKeepsFirstNameForCompatibleTypes(t *testing.T) {
 		Parameter{Number: 1, Column: &Column{Name: "user", DataType: "text"}},
 		Parameter{Number: 1, Column: &Column{Name: "student_user", DataType: "text"}},
 	)
+	
 
 	if merged.Column == nil {
 		t.Fatal("expected merged column")
