@@ -200,6 +200,13 @@ func TestParseQueryDynamicCheck(t *testing.T) {
 		{
 			comments: []string{
 				" name: CreateFoo :one",
+				" @sqlc-dynamic-check weak-heuristic",
+			},
+			mode: DynamicCheckModeWeakHeuristic,
+		},
+		{
+			comments: []string{
+				" name: CreateFoo :one",
 				" @sqlc-dynamic-check exhaustive",
 			},
 			mode: DynamicCheckModeExhaustive,

@@ -16,13 +16,14 @@ type CommentSyntax source.CommentSyntax
 type DynamicCheckMode string
 
 const (
-	DynamicCheckModeHeuristic  DynamicCheckMode = "heuristic"
-	DynamicCheckModeExhaustive DynamicCheckMode = "exhaustive"
+	DynamicCheckModeHeuristic     DynamicCheckMode = "heuristic"
+	DynamicCheckModeWeakHeuristic DynamicCheckMode = "weak-heuristic"
+	DynamicCheckModeExhaustive    DynamicCheckMode = "exhaustive"
 )
 
 func ParseDynamicCheckMode(s string) (DynamicCheckMode, error) {
 	switch DynamicCheckMode(s) {
-	case DynamicCheckModeHeuristic, DynamicCheckModeExhaustive:
+	case DynamicCheckModeHeuristic, DynamicCheckModeWeakHeuristic, DynamicCheckModeExhaustive:
 		return DynamicCheckMode(s), nil
 	default:
 		return "", fmt.Errorf("invalid %s mode: %q", constants.QueryFlagSqlcDynamicCheck, s)
