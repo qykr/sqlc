@@ -34,6 +34,66 @@ type DynamicIfArm struct {
 	Parts     []DynamicPart
 }
 
+// DynamicArmSkeleton is a recursive structural view of a DynamicQuery used for arm
+// counting.
+//
+// The tree alternates between block nodes and arm nodes:
+//   - The root node contains the top-level dynamic blocks in the query.
+//   - A block node contains one child per arm in that block.
+//   - An arm node contains the nested dynamic blocks that appear inside that arm.
+//
+// This keeps the representation minimal while still making it easy to count the
+// arms in each block with len(node.Children).
+type DynamicArmSkeleton struct {
+	Children []*DynamicArmSkeleton
+}
+
+// DynamicArmTraversalTree is one selected-arm traversal over a DynamicArmSkeleton.
+//
+// Its children are the top-level dynamic blocks in the query after choosing a
+// single arm for each block.
+type DynamicArmTraversalTree struct {
+	Children []*DynamicArmTraversal
+}
+
+// DynamicArmTraversal records the selected arm for one dynamic block and the
+// nested block traversals reached through that arm.
+type DynamicArmTraversal struct {
+	Arm      int
+	Children []*DynamicArmTraversal
+}
+
+func (t *DynamicArmSkeleton) String() string {
+	var b strings.Builder
+	b.WriteString("root\n")
+	writeDynamicArmSkeletonBlocks(&b, t.Children, 1)
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeDynamicArmSkeletonBlocks(b *strings.Builder, blocks []*DynamicArmSkeleton, depth int) {
+	for i, block := range blocks {
+		fmt.Fprintf(b, "%sblock[%d]\n", strings.Repeat("  ", depth), i)
+		for arm, child := range block.Children {
+			fmt.Fprintf(b, "%sarm[%d]\n", strings.Repeat("  ", depth+1), arm)
+			writeDynamicArmSkeletonBlocks(b, child.Children, depth+2)
+		}
+	}
+}
+
+func (t *DynamicArmTraversalTree) String() string {
+	var b strings.Builder
+	b.WriteString("root\n")
+	writeDynamicArmTraversalBlocks(&b, t.Children, 1)
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeDynamicArmTraversalBlocks(b *strings.Builder, blocks []*DynamicArmTraversal, depth int) {
+	for i, block := range blocks {
+		fmt.Fprintf(b, "%sblock[%d] arm=%d\n", strings.Repeat("  ", depth), i, block.Arm)
+		writeDynamicArmTraversalBlocks(b, block.Children, depth+1)
+	}
+}
+
 type dynamicFrame struct {
 	block       *DynamicIfBlock
 	parentParts *[]DynamicPart
@@ -178,6 +238,86 @@ func ParseDynamicQuery(sql string) (DynamicQuery, error) {
 	}
 
 	return query, nil
+}
+
+// ExpandTraversal renders one selected-arm traversal into a concrete static SQL
+// query.
+func (q DynamicQuery) ExpandTraversal(traversal *DynamicArmTraversalTree) (string, error) {
+	if traversal == nil {
+		traversal = &DynamicArmTraversalTree{}
+	}
+	return expandDynamicParts(q.Parts, traversal.Children)
+}
+
+// ExpandTraversals renders a traversal set into a de-duplicated list of concrete
+// static SQL queries.
+func (q DynamicQuery) ExpandTraversals(traversals []*DynamicArmTraversalTree) ([]string, error) {
+	queries := make([]string, 0, len(traversals))
+	seen := make(map[string]struct{}, len(traversals))
+	for _, traversal := range traversals {
+		staticQuery, err := q.ExpandTraversal(traversal)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[staticQuery]; ok {
+			continue
+		}
+		seen[staticQuery] = struct{}{}
+		queries = append(queries, staticQuery)
+	}
+	return queries, nil
+}
+
+// WeakStaticQueries expands the weak-heuristic traversals for this query into
+// concrete static SQL variants.
+func (q DynamicQuery) WeakStaticQueries() ([]string, error) {
+	return q.ExpandTraversals(q.ArmTree().WeakTraversals())
+}
+
+// HeuristicStaticQueries expands the heuristic traversals for this query into
+// concrete static SQL variants.
+func (q DynamicQuery) HeuristicStaticQueries() ([]string, error) {
+	return q.ExpandTraversals(q.ArmTree().HeuristicTraversals())
+}
+
+// ExhaustiveStaticQueries expands the exhaustive traversals for this query into
+// concrete static SQL variants.
+func (q DynamicQuery) ExhaustiveStaticQueries() ([]string, error) {
+	return q.ExpandTraversals(q.ArmTree().ExhaustiveTraversals())
+}
+
+func expandDynamicParts(parts []DynamicPart, traversals []*DynamicArmTraversal) (string, error) {
+	var b strings.Builder
+	usedBlocks := 0
+
+	for _, part := range parts {
+		if part.If == nil {
+			b.WriteString(part.Text)
+			continue
+		}
+
+		if usedBlocks >= len(traversals) {
+			return "", fmt.Errorf("missing traversal for dynamic block %d", usedBlocks)
+		}
+
+		selected := traversals[usedBlocks]
+		if selected.Arm < 0 || selected.Arm >= len(part.If.Arms) {
+			return "", fmt.Errorf("selected arm %d out of range for dynamic block %d", selected.Arm, usedBlocks)
+		}
+
+		expanded, err := expandDynamicParts(part.If.Arms[selected.Arm].Parts, selected.Children)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(expanded)
+		usedBlocks++
+	}
+
+	if usedBlocks != len(traversals) {
+		return "", fmt.Errorf("unexpected extra traversal blocks: got %d extra", len(traversals)-usedBlocks)
+	}
+
+	return b.String(), nil
 }
 
 func appendDynamicText(parts *[]DynamicPart, text string) {

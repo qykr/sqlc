@@ -74,6 +74,31 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 	md.DynamicCheck = directives.DynamicCheck
 	md.RuleSkiplist = directives.RuleSkiplist
 
+	anlys, err := c.analyzeRawQuery(ctx, raw, rawSQL)
+	if err != nil {
+		return nil, err
+	}
+
+	expanded := anlys.Query
+
+	trimmed, comments, err := source.StripComments(expanded)
+	if err != nil {
+		return nil, err
+	}
+
+	md.Comments = comments
+
+	return &Query{
+		RawStmt:         raw,
+		Metadata:        md,
+		Params:          anlys.Parameters,
+		Columns:         anlys.Columns,
+		SQL:             trimmed,
+		InsertIntoTable: anlys.Table,
+	}, nil
+}
+
+func (c *Compiler) analyzeRawQuery(ctx context.Context, raw *ast.RawStmt, rawSQL string) (*analysis, error) {
 	var anlys *analysis
 	if c.databaseOnlyMode && c.expander != nil {
 		// In database-only mode, use the expander for star expansion
@@ -153,6 +178,7 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		// FOOTGUN: combineAnalysis mutates inference
 		anlys = combineAnalysis(inference, result)
 	} else {
+		var err error
 		anlys, err = c.analyzeQuery(raw, rawSQL)
 		if err != nil {
 			return nil, err
@@ -168,21 +194,7 @@ func (c *Compiler) parseQuery(stmt ast.Node, src string, o opts.Parser) (*Query,
 		}
 	}
 
-	trimmed, comments, err := source.StripComments(expanded)
-	if err != nil {
-		return nil, err
-	}
-
-	md.Comments = comments
-
-	return &Query{
-		RawStmt:         raw,
-		Metadata:        md,
-		Params:          anlys.Parameters,
-		Columns:         anlys.Columns,
-		SQL:             trimmed,
-		InsertIntoTable: anlys.Table,
-	}, nil
+	return anlys, nil
 }
 
 func rangeVars(root ast.Node) []*ast.RangeVar {

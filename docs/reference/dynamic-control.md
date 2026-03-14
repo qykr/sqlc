@@ -157,14 +157,32 @@ Control expressions must be validated before variant expansion.
 - `match` expressions and all of their `case` values must agree on type.
 
 - Validation mode is selected with `@sqlc-dynamic-check`.
+- Every dynamic block is treated as a set of arms.
+  - For `match`, each `case` arm and the optional `default` arm participate.
+  - For `if` / `elif` / `else`, each clause is an arm.
+  - An `if` block without an `else` still has an implicit arm 0 that expands to
+    nothing.
 - The default mode is `heuristic`.
-  - `heuristic` checks a small constant-size mask set aimed at catching common
-    syntax-shape issues, using masks `10101010`, `01010101`, `00000000`, and `11111111`.
-- `weak-heuristic` checks only the all-disabled and all-enabled masks,
-  `00000` and `111111`.
-  - This covers almost all type checking, but does not try to catch syntax
-    issues such as dangling `AND`.
-- `exhaustive` validates all branch combinations with O(2^n) complexity.
+  - `heuristic` checks a small constant-size set of arm assignments aimed at
+    catching common syntax-shape issues.
+  - For a block with arms `A`, `B`, `C`, ... this means checking the uniform
+    assignments `AAAAAA`, `BBBBBB`, `CCCCCC`, ... and, for every pair of arms,
+    alternating assignments such as `ABABAB` and `BABABA`.
+  - Nested blocks are validated bottom-up. When validating an outer block,
+    nested blocks that are not currently being explored are held at arm 0. That
+    keeps the search bounded while still probing mixed-arm syntax shapes.
+  - This is roughly quadratic in the number of arms per block.
+- `weak-heuristic` checks each block arm in isolation.
+  - This covers almost all type checking, but does not try to catch many syntax issues.
+  - For each block and each of its arms, sqlc constructs one traversal that
+    selects that arm.
+  - Ancestor blocks are set to whatever arms are required to reach the targeted
+    block.
+  - All other blocks are held at arm 0.
+  - This is linear in the total number of arms across all blocks.
+- `exhaustive` validates every arm assignment across every dynamic block.
+  - If block `i` has `a_i` arms, the total number of variants is the product of
+    all `a_i`.
 
 Each generated concrete variant is then processed through the normal `sqlc`
 pipeline: parsing, validation, parameter rewriting, analysis, and codegen.
