@@ -36,19 +36,11 @@ Supports logic:
 
 - `[[if A && (!B && @C)]]`
 
-## Follow-on proposal after basic `if` blocks
+Comparators:
 
-After the initial `[[if]]` / `[[elif]]` / `[[else]]` / `[[endif]]`
-implementation is complete, the control language may be extended with typed
-comparators and `match` dispatch.
-
-### Comparator examples
-
-```sql
-[[if @sort == "name"]]
-[[if @limit > 10]]
-[[if @mode != "public"]]
-```
+- `[[if @sort == "name"]]`
+- `[[if @limit > 10]]`
+- `[[if @mode != "public"]]`
 
 Proposed comparator operators:
 
@@ -69,6 +61,11 @@ These comparisons should be statically type checked before expansion.
   controls.
 - Type mismatches such as comparing a numeric control with a string literal
   should be rejected.
+  
+## Follow-on proposal after basic `if` blocks
+
+After the initial `[[if]]` / `[[elif]]` / `[[else]]` / `[[endif]]`
+implementation is complete, the control language may be extended with `match` dispatch.
 
 ### `match` example
 

@@ -121,18 +121,44 @@ message Parameter {
 
 message Condition {
   oneof expr {
-    Leaf leaf = 1;
-    Not not = 2;
-    And and = 3;
-    Or  or  = 4;
+    Comparison comparison = 1;
+    Variable variable = 2;
+    Not not = 3;
+    And and = 4;
+    Or  or  = 5;
   }
 }
 
-message Leaf {
+message Variable {
   oneof value {
     int32 control_id = 1 [json_name = "control_id"];
     int32 param_number = 2 [json_name = "param_number"];
   }
+}
+
+message ComparisonValue {
+  oneof value {
+    int32 control_id = 1 [json_name = "control_id"];
+    int32 param_number = 2 [json_name = "param_number"];
+    int64 const_int = 3 [json_name = "const_int"];
+    double const_double = 3 [json_name = "const_double"];
+    string const_str = 4 [json_name = "const_str"];
+    bool const_bool = 5 [json_name = "const_bool"];
+  }
+}
+
+message Comparison {
+  enum Comparator {
+    EQUALS = 0;
+    NOT_EQUALS = 1;
+    GREATER = 2;
+    GREATER_EQUAL = 3;
+    LESS = 4;
+    LESS_EQUAL = 5;
+  }
+  Comparator symbol = 1 [json_name = "symbol"];
+  ComparisonValue left = 2 [json_name = "left"];
+  ComparisonValue right = 3 [json_name = "right"];
 }
 
 message Not {
