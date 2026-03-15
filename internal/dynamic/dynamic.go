@@ -16,7 +16,8 @@ const (
 )
 
 type DynamicQuery struct {
-	Parts []DynamicPart
+	Controls []Control
+	Parts    []DynamicPart
 }
 
 type DynamicPart struct {
@@ -29,9 +30,10 @@ type DynamicIfBlock struct {
 }
 
 type DynamicIfArm struct {
-	Kind      DynamicArmKind
-	Condition string
-	Parts     []DynamicPart
+	Kind          DynamicArmKind
+	ConditionText string
+	Condition     *Condition
+	Parts         []DynamicPart
 }
 
 // DynamicArmSkeleton is a recursive structural view of a DynamicQuery used for arm
@@ -101,10 +103,15 @@ type dynamicFrame struct {
 }
 
 func ParseDynamicQuery(sql string) (DynamicQuery, error) {
+	return ParseDynamicQueryWithParams(sql, nil)
+}
+
+func ParseDynamicQueryWithParams(sql string, params map[string]ConditionParam) (DynamicQuery, error) {
 	query := DynamicQuery{}
 	currentParts := &query.Parts
 	textStart := 0
 	var stack []dynamicFrame
+	controls := &conditionControlRegistry{ids: map[string]int32{}}
 
 	for i := 0; i < len(sql); {
 		switch {
@@ -122,12 +129,21 @@ func ParseDynamicQuery(sql string) (DynamicQuery, error) {
 				return query, err
 			}
 
+			var parsedCondition *Condition
+			if condition != "" {
+				parsedCondition, err = parseConditionWithRegistry(condition, params, controls)
+				if err != nil {
+					return query, fmt.Errorf("invalid condition for [[%s]]: %w", directive, err)
+				}
+			}
+
 			switch directive {
 			case string(DynamicArmKindIf):
 				block := &DynamicIfBlock{
 					Arms: []DynamicIfArm{{
-						Kind:      DynamicArmKindIf,
-						Condition: condition,
+						Kind:          DynamicArmKindIf,
+						ConditionText: condition,
+						Condition:     parsedCondition,
 					}},
 				}
 				*currentParts = append(*currentParts, DynamicPart{If: block})
@@ -147,8 +163,9 @@ func ParseDynamicQuery(sql string) (DynamicQuery, error) {
 				}
 
 				frame.block.Arms = append(frame.block.Arms, DynamicIfArm{
-					Kind:      DynamicArmKindElif,
-					Condition: condition,
+					Kind:          DynamicArmKindElif,
+					ConditionText: condition,
+					Condition:     parsedCondition,
 				})
 				currentParts = &frame.block.Arms[len(frame.block.Arms)-1].Parts
 
@@ -236,6 +253,8 @@ func ParseDynamicQuery(sql string) (DynamicQuery, error) {
 	if len(stack) > 0 {
 		return query, fmt.Errorf("missing [[endif]] for dynamic control block")
 	}
+
+	query.Controls = append(query.Controls, controls.controls...)
 
 	return query, nil
 }

@@ -101,6 +101,17 @@ type Or struct {
 
 func ParseCondition(input string, params map[string]ConditionParam) (*Condition, []Control, error) {
 	registry := &conditionControlRegistry{ids: map[string]int32{}}
+	cond, err := parseConditionWithRegistry(input, params, registry)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cond, append([]Control(nil), registry.controls...), nil
+}
+
+func parseConditionWithRegistry(input string, params map[string]ConditionParam, registry *conditionControlRegistry) (*Condition, error) {
+	if registry == nil {
+		registry = &conditionControlRegistry{ids: map[string]int32{}}
+	}
 	p := conditionParser{
 		input:    input,
 		params:   params,
@@ -108,9 +119,9 @@ func ParseCondition(input string, params map[string]ConditionParam) (*Condition,
 	}
 	cond, err := p.parse()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return cond, append([]Control(nil), registry.controls...), nil
+	return cond, nil
 }
 
 type conditionControlRegistry struct {

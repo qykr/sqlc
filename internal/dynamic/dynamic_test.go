@@ -31,13 +31,17 @@ ORDER BY created_at DESC;
 	if block == nil {
 		t.Fatal("expected second part to be a dynamic if block")
 	}
+	if len(query.Controls) != 1 || query.Controls[0].Name != "is_admin" {
+		t.Fatalf("unexpected controls: %+v", query.Controls)
+	}
 	if len(block.Arms) != 2 {
 		t.Fatalf("expected 2 arms, got %d", len(block.Arms))
 	}
-	if block.Arms[0].Kind != DynamicArmKindIf || block.Arms[0].Condition != "is_admin" {
+	if block.Arms[0].Kind != DynamicArmKindIf || block.Arms[0].ConditionText != "is_admin" {
 		t.Fatalf("unexpected first arm: %+v", block.Arms[0])
 	}
-	if block.Arms[1].Kind != DynamicArmKindElse || block.Arms[1].Condition != "" {
+	requireControlVariable(t, block.Arms[0].Condition, 1)
+	if block.Arms[1].Kind != DynamicArmKindElse || block.Arms[1].ConditionText != "" || block.Arms[1].Condition != nil {
 		t.Fatalf("unexpected second arm: %+v", block.Arms[1])
 	}
 	if !strings.Contains(block.Arms[0].Parts[0].Text, "salary > 0") {
@@ -70,9 +74,14 @@ func TestParseDynamicQueryNested(t *testing.T) {
 	if len(outer.Arms) != 2 {
 		t.Fatalf("expected 2 outer arms, got %d", len(outer.Arms))
 	}
-	if outer.Arms[0].Condition != "outer" || outer.Arms[1].Condition != "fallback" {
+	if outer.Arms[0].ConditionText != "outer" || outer.Arms[1].ConditionText != "fallback" {
 		t.Fatalf("unexpected outer arm conditions: %+v", outer.Arms)
 	}
+	if len(query.Controls) != 3 || query.Controls[0].Name != "outer" || query.Controls[1].Name != "inner" || query.Controls[2].Name != "fallback" {
+		t.Fatalf("unexpected controls: %+v", query.Controls)
+	}
+	requireControlVariable(t, outer.Arms[0].Condition, 1)
+	requireControlVariable(t, outer.Arms[1].Condition, 3)
 	if len(outer.Arms[0].Parts) != 3 {
 		t.Fatalf("expected nested arm to have text/if/text parts, got %d", len(outer.Arms[0].Parts))
 	}
@@ -83,9 +92,10 @@ func TestParseDynamicQueryNested(t *testing.T) {
 	if len(inner.Arms) != 2 {
 		t.Fatalf("expected 2 inner arms, got %d", len(inner.Arms))
 	}
-	if inner.Arms[0].Condition != "inner" {
-		t.Fatalf("unexpected inner if condition: %q", inner.Arms[0].Condition)
+	if inner.Arms[0].ConditionText != "inner" {
+		t.Fatalf("unexpected inner if condition: %q", inner.Arms[0].ConditionText)
 	}
+	requireControlVariable(t, inner.Arms[0].Condition, 2)
 	if inner.Arms[1].Kind != DynamicArmKindElse {
 		t.Fatalf("expected nested else arm, got %q", inner.Arms[1].Kind)
 	}
@@ -111,12 +121,40 @@ func TestParseDynamicQueryIgnoresQuotedAndCommentedDirectives(t *testing.T) {
 	if len(block.Arms) != 1 {
 		t.Fatalf("expected 1 arm, got %d", len(block.Arms))
 	}
-	if block.Arms[0].Condition != "yes" {
-		t.Fatalf("expected real condition to be parsed, got %q", block.Arms[0].Condition)
+	if block.Arms[0].ConditionText != "yes" {
+		t.Fatalf("expected real condition to be parsed, got %q", block.Arms[0].ConditionText)
 	}
+	requireControlVariable(t, block.Arms[0].Condition, 1)
 	if !strings.Contains(block.Arms[0].Parts[0].Text, "kept") {
 		t.Fatalf("expected arm text to be kept, got %+v", block.Arms[0].Parts)
 	}
+}
+
+func TestParseDynamicQueryWithParams(t *testing.T) {
+	sql := `SELECT *
+[[if @limit > 10 || enabled]] WHERE x = 1 [[endif]]`
+
+	query, err := ParseDynamicQueryWithParams(sql, map[string]ConditionParam{
+		"limit": {Number: 4, Type: ConditionValueTypeInt},
+	})
+	if err != nil {
+		t.Fatalf("ParseDynamicQueryWithParams returned error: %v", err)
+	}
+	if len(query.Controls) != 1 || query.Controls[0].Name != "enabled" {
+		t.Fatalf("unexpected controls: %+v", query.Controls)
+	}
+	block := query.Parts[1].If
+	if block == nil || len(block.Arms) != 1 {
+		t.Fatalf("expected single dynamic block, got %+v", query.Parts)
+	}
+	if block.Arms[0].ConditionText != "@limit > 10 || enabled" {
+		t.Fatalf("unexpected condition text: %q", block.Arms[0].ConditionText)
+	}
+	if block.Arms[0].Condition == nil || block.Arms[0].Condition.Or == nil || len(block.Arms[0].Condition.Or.Exprs) != 2 {
+		t.Fatalf("expected parsed or condition, got %+v", block.Arms[0].Condition)
+	}
+	requireParamIntComparison(t, block.Arms[0].Condition.Or.Exprs[0], ComparatorGreater, 4, 10)
+	requireControlVariable(t, block.Arms[0].Condition.Or.Exprs[1], 1)
 }
 
 func TestParseDynamicQueryInvalid(t *testing.T) {
@@ -137,6 +175,7 @@ func TestParseDynamicQueryInvalid(t *testing.T) {
 		{name: "extra endif content", sql: `SELECT [[if cond]]a[[endif nope]]`, want: "unexpected extra content in [[endif]]"},
 		{name: "unknown directive", sql: `SELECT [[wat cond]]`, want: "unknown dynamic control directive"},
 		{name: "unterminated directive", sql: `SELECT [[if cond]`, want: "unterminated dynamic control directive"},
+		{name: "invalid condition", sql: `SELECT [[if 5]]a[[endif]]`, want: "invalid condition for [[if]]"},
 	}
 
 	for _, tc := range tests {
