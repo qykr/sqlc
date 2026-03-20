@@ -22,8 +22,7 @@ const (
 	ConditionValueTypeString ConditionValueType = "string"
 )
 
-// ConditionParam describes a named parameter that may appear in a condition as
-// @name.
+// ConditionParam describes a dynamic control parameter
 type ConditionParam struct {
 	Number int32
 	Type   ConditionValueType

@@ -29,7 +29,7 @@ const (
 func mustParseDynamicQueryForArms(t *testing.T, sql string) DynamicQuery {
 	t.Helper()
 
-	query, err := ParseDynamicQuery(sql)
+	query, err := ParseDynamicQuery(sql, nil)
 	if err != nil {
 		t.Fatalf("ParseDynamicQuery returned error: %v", err)
 	}

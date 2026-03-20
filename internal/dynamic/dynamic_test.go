@@ -17,7 +17,7 @@ FROM profiles
 ORDER BY created_at DESC;
 `
 
-	query, err := ParseDynamicQuery(sql)
+	query, err := ParseDynamicQuery(sql, nil)
 	if err != nil {
 		t.Fatalf("ParseDynamicQuery returned error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestParseDynamicQueryNested(t *testing.T) {
 [[if outer]]a[[if inner]]b[[else]]c[[endif]]d[[elif fallback]]e[[endif]]
 `
 
-	query, err := ParseDynamicQuery(sql)
+	query, err := ParseDynamicQuery(sql, nil)
 	if err != nil {
 		t.Fatalf("ParseDynamicQuery returned error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestParseDynamicQueryIgnoresQuotedAndCommentedDirectives(t *testing.T) {
 		"# [[endif]]\n" +
 		"[[if yes]] kept [[endif]]"
 
-	query, err := ParseDynamicQuery(sql)
+	query, err := ParseDynamicQuery(sql, nil)
 	if err != nil {
 		t.Fatalf("ParseDynamicQuery returned error: %v", err)
 	}
@@ -130,15 +130,15 @@ func TestParseDynamicQueryIgnoresQuotedAndCommentedDirectives(t *testing.T) {
 	}
 }
 
-func TestParseDynamicQueryWithParams(t *testing.T) {
+func TestParseDynamicQuery(t *testing.T) {
 	sql := `SELECT *
 [[if @limit > 10 || enabled]] WHERE x = 1 [[endif]]`
 
-	query, err := ParseDynamicQueryWithParams(sql, map[string]ConditionParam{
+	query, err := ParseDynamicQuery(sql, map[string]ConditionParam{
 		"limit": {Number: 4, Type: ConditionValueTypeInt},
 	})
 	if err != nil {
-		t.Fatalf("ParseDynamicQueryWithParams returned error: %v", err)
+		t.Fatalf("ParseDynamicQuery returned error: %v", err)
 	}
 	if len(query.Controls) != 1 || query.Controls[0].Name != "enabled" {
 		t.Fatalf("unexpected controls: %+v", query.Controls)
@@ -180,7 +180,7 @@ func TestParseDynamicQueryInvalid(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := ParseDynamicQuery(tc.sql)
+			_, err := ParseDynamicQuery(tc.sql, nil)
 			if err == nil {
 				t.Fatalf("expected error containing %q", tc.want)
 			}

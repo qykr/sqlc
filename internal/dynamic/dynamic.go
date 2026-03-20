@@ -102,11 +102,7 @@ type dynamicFrame struct {
 	sawElse     bool
 }
 
-func ParseDynamicQuery(sql string) (DynamicQuery, error) {
-	return ParseDynamicQueryWithParams(sql, nil)
-}
-
-func ParseDynamicQueryWithParams(sql string, params map[string]ConditionParam) (DynamicQuery, error) {
+func ParseDynamicQuery(sql string, params map[string]ConditionParam) (DynamicQuery, error) {
 	query := DynamicQuery{}
 	currentParts := &query.Parts
 	textStart := 0
