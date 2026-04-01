@@ -30,7 +30,7 @@ Only allowed only to check nullable parameters are null:
 - ✅: `[[IF sqlc.narg(param)]]`
 - ✅: `[[ELIF sqlc.narg(param)]]`
 - ❌: `[[IF sqlc.narg(param) > 4]]`
-  - This may be [supported](#nullable-parameters) in the future
+  - This may be [supported via 3VL](#nullable-parameters) in the future
 
 Supports logic:
 
@@ -70,7 +70,9 @@ implementation is complete, the control language may be extended with `match` di
 ### `match` example
 
 ```sql
-[[MATCH @sort]]
+[[MATCH sqlc.narg(sort)]]
+[[CASE NULL]]
+  ORDER BY size
 [[CASE "name"]]
   ORDER BY name
 [[CASE "price"]]
@@ -139,35 +141,108 @@ The selected branch is determined by a named control such as `@is_admin`. Some d
 
 ## Validation model
 
-Each query induces multiple concrete SQL variants through a pre-parsing layer.
+Each query induces multiple concrete SQL variants through a pre-parsing layer. Control expressions must be validated before variant expansion:
 
-Control expressions must be validated before variant expansion.
+* Comparator expressions must be type-compatible on both sides.
+* Comparator expressions must use an operator supported by the resolved operand type.
+* `MATCH` expressions and all of their `CASE` values must agree on type.
 
-- Comparator expressions must be type-compatible on both sides.
-- Comparator expressions must use an operator supported by the resolved operand type.
-- `match` expressions and all of their `case` values must agree on type.
+Validation mode is selected with `@sqlc-dynamic-check`.
 
-- Validation mode is selected with `@sqlc-dynamic-check`.
-- Every dynamic block is treated as a set of arms.
-  - For `match`, each `case` arm and the optional `default` arm participate.
-  - For `if` / `elif` / `else`, each clause is an arm.
-  - An `if` block without an `else` still has an implicit arm 0 that expands to nothing.
-- The default mode is `heuristic`.
-  - `heuristic` checks a small constant-size set of arm assignments aimed at
-    catching common syntax-shape issues.
-  - For a block with arms `A`, `B`, `C`, ... this means checking the uniform assignments `AAAAAA`, `BBBBBB`, `CCCCCC`, ... and, for every pair of arms, alternating assignments such as `ABABAB` and `BABABA`.
-  - Nested blocks are validated bottom-up. When validating an outer block, nested blocks that are not currently being explored are held at arm 0. That keeps the search bounded while still probing mixed-arm syntax shapes.
-  - The complexity is $O(a_\text{max}^2)$, where $a_\text{max}$ is the max number of arms in a branch.
-- `weak-heuristic` checks each block arm in isolation.
-  - This covers almost all type checking, but does not try to catch many syntax issues.
-  - For each block and each of its arms, sqlc constructs one traversal that selects that arm.
-  - Ancestor blocks are set to whatever arms are required to reach the targeted block.
-  - All other blocks are held at arm 0.
-  - The complexity is $O(\sum a_i)$ where block $i$ has $a_i$ arms.
-- `exhaustive` validates every possible arm assignment across every dynamic block.
-  - The complexity is $O(\prod a_i)$ where block $i$ has $a_i$ arms.
+### Structural Definitions
+To define the validation modes, we define the structure of the AST (Abstract Syntax Tree):
+* **Leaf:** A raw SQL fragment.
+* **Dynamic Block:** An `IF` or `MATCH` directive. A Block contains one or more **Arms**.
+* **Arm:** A single branch within a Block (e.g., an `IF`, `ELIF`, `ELSE`, `CASE`, or `DEFAULT` clause). An Arm contains its own **Sequence** of Parts.
+* **Part:** The smallest unit of syntax. It is either a **Leaf** or a **Dynamic Block**.
+* **Sequence:** A list of adjacent Parts executed in order. A full query is a Sequence.
 
-Each generated concrete variant is then processed through the normal `sqlc` pipeline: parsing, validation, parameter rewriting, analysis, and codegen.
+An `IF` block without an `ELSE` still has an implicit "Arm 0" containing an empty Sequence.
+
+### Validation Modes
+
+#### 1. `heuristic` (Default Mode)
+The `heuristic` mode catches syntax-shape issues by validating the boundary between every pair of adjacent parts across all possible logic paths, without generating the exponentially large set of full query permutations.
+
+For every Leaf in the AST, `sqlc` finds the immediately preceding Part. `sqlc` must check the current Leaf against every possible **Tail** Leaf (exit point) of that Block.
+
+**Finding the "Immediate Predecessor"**
+To find the predecessor(s) of a Leaf `P`:
+* Keep going up to the parent Block until that Block is no longer the first in the sequence.
+* The part immediately before is the "immediate predecessor."
+* Note that some Leaves do not have an immediate predecessor.
+
+**The Tail Resolution Algorithm:**
+To find the set of Tails for any Part:
+1.  **If the Part is a Raw SQL Fragment:** Its Tail is simply itself.
+2.  **If the Part is a Dynamic Block:** Its Tails are the union of the Tails of all its Arms.
+3.  **The Tail of an Arm:** is simply the Tail of the *last Part* in its Sequence.
+
+**Example Traversal:**
+Consider a Sequence where a Block `C` is immediately followed by Block `D`.
+```text
+[Sequence]
+ ┌─ Block A
+ │   ├─ Arm A.1
+ │   │   └─ [Sequence]
+ │   │       ├─ Block A.1.A ...
+ │   │       └─ Leaf (1)
+ │   └─ Arm A.2
+ │       └─ [Sequence]
+ │           ├─ Leaf (2)
+ │           └─ Block A.2.A
+ │               ├─ Arm A.2.A.1
+ │               │   ├─ ...
+ │               │   └─ Leaf (3)
+ │               └─ Arm A.2.A.2
+ │                   ├─ ...
+ │                   └─ Leaf (4)
+ └─ Block B
+     ├─ Arm B.1
+     │   └─ [Sequence]
+     │       ├─ Leaf (5)
+     │       └─ ...
+     └─ Arm B.2
+         └─ [Sequence]
+             ├─ Leaf (6)
+             └─ ...
+```
+
+To validate **Leaf (5)**, `sqlc` looks at the immediately preceding Part: Block `A`.
+Using the algorithm to find the Tails of Block `A`:
+* The last Part in Arm 1 is **Leaf (1)**.
+* The last Part in Arm 2 is **Block A.2.A**. The Tails of Block `A.2.A` are the tails of its arms: **Leaf (3)** and **Leaf (4)**.
+
+Therefore, the Tails of Block `A` are `{1, 3, 4}`.
+The `heuristic` mode will check the syntax of:
+* `Leaf (1)` immediately followed by `Leaf (5)`
+* `Leaf (3)` immediately followed by `Leaf (5)`
+* `Leaf (4)` immediately followed by `Leaf (5)`
+
+As well as these following the same method:
+* `Leaf (2)` immediately followed by `Leaf (3)`
+* `Leaf (2)` immediately followed by `Leaf (4)`
+* `Leaf (1)` immediately followed by `Leaf (6)`
+* `Leaf (3)` immediately followed by `Leaf (6)`
+* `Leaf (4)` immediately followed by `Leaf (6)`
+* **Complexity:**
+  * **Lower bound:** $\Omega(L + \sum A_i)$
+  * **Worst case:** $O(NA^2)$
+  * $A$ is the average number of arms per branch.
+  * $L$ is the number of leaves in the entire query.
+  * These have not been proven rigorously
+
+#### 2. `weak-heuristic`
+Checks each Block Arm in isolation to cover type-checking, but does not exhaustively catch inter-block syntax errors.
+* For each Block and each of its Arms, `sqlc` constructs one traversal that selects that Arm.
+* Ancestor Blocks are set to whatever Arms are required to reach the targeted Block.
+* All other Blocks are held at Arm 0 (empty or default).
+* **Complexity:** $O(\sum a_i)$ where Block $i$ has $a_i$ Arms.
+
+#### 3. `exhaustive`
+Validates every possible Arm assignment combination across every Dynamic Block simultaneously.
+* Generates every conceivable concrete query variant.
+* **Complexity:** $O(\prod a_i)$ where Block $i$ has $a_i$ Arms.
 
 ## Invariants
 
